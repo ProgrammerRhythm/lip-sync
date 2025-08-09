@@ -3,35 +3,42 @@ import { exec } from "child_process";
 import cors from "cors";
 import express from "express";
 import { promises as fs } from "fs";
+import fsSync from "fs";
 import path from "path";
 import multer from "multer";
+import { fileURLToPath } from "url";
 
-
-import fs from "fs";
-import path from "path";
-
-
+// __dirname fix for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
-const uploadFolder = path.resolve("uploads");
 
-if (!fs.existsSync(uploadFolder)) {
-  fs.mkdirSync(uploadFolder, { recursive: true });
+// Upload folder
+const uploadFolder = path.resolve(__dirname, "uploads");
+
+if (!fsSync.existsSync(uploadFolder)) {
+  fsSync.mkdirSync(uploadFolder, { recursive: true });
   console.log(`Created uploads folder at ${uploadFolder}`);
 }
 
-// --- exec wrapper with bigger buffer and stderr in errors ---
+// --- exec wrapper with bigger buffer + stderr in errors ---
 const execCommand = (command) =>
   new Promise((resolve, reject) => {
+    console.log(`\n▶ Running command: ${command}`);
     exec(command, { maxBuffer: 1024 * 1024 * 20 }, (error, stdout, stderr) => {
       if (error) {
-        console.error("Command failed:", command, stderr);
+        console.error(`❌ Command failed: ${command}`);
+        console.error("stderr:", stderr);
         return reject(new Error(`${error.message}\n${stderr}`));
       }
       resolve(stdout);
     });
   });
+
+// --- path safe for shell (Windows friendly) ---
+const safePath = (p) => `"${p.replace(/\\/g, "/")}"`;
 
 // --- lipSyncMessage function ---
 const lipSyncMessage = async (inputFilePath) => {
@@ -43,10 +50,10 @@ const lipSyncMessage = async (inputFilePath) => {
 
   try {
     // 1) Convert to WAV (16k mono)
-    await execCommand(`ffmpeg -y -i "${inputFilePath}" -ar 16000 -ac 1 "${wavPath}"`);
+    await execCommand(`ffmpeg -y -i ${safePath(inputFilePath)} -ar 16000 -ac 1 ${safePath(wavPath)}`);
 
-    // 2) Run rhubarb
-    await execCommand(`./bin/rhubarb -f json -o "${jsonPath}" "${wavPath}" -r phonetic`);
+    // 2) Run rhubarb (make sure rhubarb.exe is in ./bin)
+    await execCommand(`${safePath(path.join(__dirname, "bin", process.platform === "win32" ? "rhubarb.exe" : "rhubarb"))} -f json -o ${safePath(jsonPath)} ${safePath(wavPath)} -r phonetic`);
 
     // 3) Read and parse JSON
     const jsonStr = await fs.readFile(jsonPath, "utf8");
@@ -74,9 +81,11 @@ const upload = multer({ storage });
 // --- POST: upload an audio file and return lipsync JSON + audio ---
 app.post("/lipsync/upload", upload.single("audio"), async (req, res) => {
   const file = req.file;
-  console.log("Received file:", file);  // <--- Debug log
+  console.log("📥 Received file:", file?.path);
 
-  if (!file) return res.status(400).json({ error: "Please upload an audio file in field 'audio'." });
+  if (!file) {
+    return res.status(400).json({ error: "Please upload an audio file in field 'audio'." });
+  }
 
   try {
     const { lipsyncJson } = await lipSyncMessage(file.path);
@@ -84,8 +93,8 @@ app.post("/lipsync/upload", upload.single("audio"), async (req, res) => {
 
     res.json({ success: true, lipsync: lipsyncJson, audioBase64 });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("💥 ERROR:", err);
+    res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
 
@@ -93,6 +102,7 @@ app.post("/lipsync/upload", upload.single("audio"), async (req, res) => {
 const port = process.env.PORT || 3000;
 
 app.listen(port, () => {
-  console.log(`LipSync server running on port ${port}`);
-  console.log(`Make sure '${uploadFolder}' folder exists and is writable!`);
+  console.log(`🚀 LipSync server running on port ${port}`);
+  console.log(`📂 Make sure '${uploadFolder}' exists and is writable!`);
+  console.log(`🔍 Ensure ffmpeg & rhubarb are installed and in correct paths!`);
 });
