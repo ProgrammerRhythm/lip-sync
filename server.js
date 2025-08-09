@@ -6,11 +6,20 @@ import { promises as fs } from "fs";
 import path from "path";
 import multer from "multer";
 
+
+import fs from "fs";
+import path from "path";
+
+
+
 const app = express();
 app.use(cors());
-
-// Resolve absolute uploads folder path
 const uploadFolder = path.resolve("uploads");
+
+if (!fs.existsSync(uploadFolder)) {
+  fs.mkdirSync(uploadFolder, { recursive: true });
+  console.log(`Created uploads folder at ${uploadFolder}`);
+}
 
 // --- exec wrapper with bigger buffer and stderr in errors ---
 const execCommand = (command) =>
