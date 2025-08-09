@@ -9,6 +9,9 @@ import multer from "multer";
 const app = express();
 app.use(cors());
 
+// Resolve absolute uploads folder path
+const uploadFolder = path.resolve("uploads");
+
 // --- exec wrapper with bigger buffer and stderr in errors ---
 const execCommand = (command) =>
   new Promise((resolve, reject) => {
@@ -52,9 +55,9 @@ const audioFileToBase64 = async (file) => {
   return data.toString("base64");
 };
 
-// --- multer setup to keep file extension ---
+// --- multer setup ---
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
+  destination: (req, file, cb) => cb(null, uploadFolder),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const upload = multer({ storage });
@@ -62,6 +65,8 @@ const upload = multer({ storage });
 // --- POST: upload an audio file and return lipsync JSON + audio ---
 app.post("/lipsync/upload", upload.single("audio"), async (req, res) => {
   const file = req.file;
+  console.log("Received file:", file);  // <--- Debug log
+
   if (!file) return res.status(400).json({ error: "Please upload an audio file in field 'audio'." });
 
   try {
@@ -77,4 +82,8 @@ app.post("/lipsync/upload", upload.single("audio"), async (req, res) => {
 
 // --- start server ---
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`LipSync server running on port ${port}`));
+
+app.listen(port, () => {
+  console.log(`LipSync server running on port ${port}`);
+  console.log(`Make sure '${uploadFolder}' folder exists and is writable!`);
+});
